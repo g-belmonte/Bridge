@@ -56,7 +56,11 @@ event :: Event -> World -> World
 event _event world = world
 
 step :: Float -> World -> World
-step dt w = applyPhysics dt w
+step dt w = applyN i (applyPhysics (dt / i)) w
+  where
+    i = 150
+    applyN 0 _ v = v
+    applyN n f v = applyN (n-1) f (f v)
 
 -- Bridge
 
@@ -81,7 +85,7 @@ mkEdge idxA idxB =
       initialLength = len,
       currentLength = len,
       elasticityCoef = 1000,
-      dampingCoef = 0.000001
+      dampingCoef = 0.1
     }
   where
     len = vectorLength $ (getNodePosition idxB nodeMap) - (getNodePosition idxA nodeMap)
@@ -182,32 +186,39 @@ updateAcceleration _dt world newWorld =
       fmap
         ( \node -> case node.state of
             Fixed -> node
-            Free -> node {acceleration = node.mass *^ gravity}
+            Free -> node {acceleration = gravity}
         )
         newWorld.nodes
     newNodes = foldl' f nodesWithResetAccel world.edges
 
     f :: Map Int Node -> Edge -> Map Int Node
-    f ns edge = updatedNodes
+    f ns edge =
+      updatedNodes
       where
         (idxA, idxB) = edge.nodeIndices
         Just nodeA = Map.lookup idxA ns
         Just nodeB = Map.lookup idxB ns
-        edgeVector = normalize $ nodeB.position - nodeA.position
+        edgeVector@(V2 ex ey) = normalize $ nodeB.position - nodeA.position
         elasticForce = edge.elasticityCoef * (edge.currentLength - edge.initialLength) *^ edgeVector
-        -- dampingForce = edge.dampingCoef *^ (nodeA.velocity - nodeB.velocity)
+        dampingForce = if vbaLen < precision then (V2 0 0) else (-edge.dampingCoef) *^ proj
+          where
+            precision = 0.0000001
+            vba@(V2 vx vy) = nodeB.velocity - nodeA.velocity -- velocity of B relative to A
+            vbaLen = vectorLength vba
+            proj = ((vx * ex + vy * ey) / (vbaLen * vbaLen)) *^ edgeVector -- projection of vba into the edge normalized vector
+
         updatedNodes =
           ns
             & Map.adjust
               ( \n -> case n.state of
                   Fixed -> n
-                  Free -> n {acceleration = n.acceleration + ((1 / n.mass) *^ elasticForce)}
+                  Free -> n {acceleration = n.acceleration + ((1 / n.mass) *^ (elasticForce + dampingForce))}
               )
               idxA
             & Map.adjust
               ( \n -> case n.state of
                   Fixed -> n
-                  Free -> n {acceleration = n.acceleration - ((1 / n.mass) *^ elasticForce)}
+                  Free -> n {acceleration = n.acceleration - ((1 / n.mass) *^ elasticForce + dampingForce)}
               )
               idxB
 
@@ -242,3 +253,18 @@ nodeMap =
         mkNode (V2 150 100),
         mkNode (V2 250 100)
       ]
+-- initWorld :: World
+-- initWorld =
+--   Bridge
+--     { edges = [mkEdge 0 1],
+--       nodes = nodeMap
+--     }
+
+-- nodeMap :: Map Int Node
+-- nodeMap =
+--   Map.fromList $
+--     zip
+--       [0 ..]
+--       [ (mkNode (V2 0 0)) {state = Fixed},
+--         mkNode (V2 50 -100)
+--       ]
