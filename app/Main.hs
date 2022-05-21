@@ -138,7 +138,7 @@ class UpdatePosition a where
 instance UpdatePosition Node where
   updatePosition dt _ node = case node.state of
     Fixed -> node
-    Free -> node {position = node.position + (dt *^ node.velocity)}
+    Free -> node {position = node.position + (dt *^ node.velocity) + ((dt * dt * 0.5) *^ node.acceleration)}
 
 instance UpdatePosition (Map Int Node) where
   updatePosition dt world nodes = fmap (updatePosition dt world) nodes
@@ -198,27 +198,21 @@ updateAcceleration _dt world newWorld =
         (idxA, idxB) = edge.nodeIndices
         Just nodeA = Map.lookup idxA ns
         Just nodeB = Map.lookup idxB ns
-        edgeVector@(V2 ex ey) = normalize $ nodeB.position - nodeA.position
+        edgeVector = normalize $ nodeB.position - nodeA.position
         elasticForce = edge.elasticityCoef * (edge.currentLength - edge.initialLength) *^ edgeVector
-        dampingForce = if vbaLen < precision then (V2 0 0) else (-edge.dampingCoef) *^ proj
-          where
-            precision = 0.0000001
-            vba@(V2 vx vy) = nodeB.velocity - nodeA.velocity -- velocity of B relative to A
-            vbaLen = vectorLength vba
-            proj = ((vx * ex + vy * ey) / (vbaLen * vbaLen)) *^ edgeVector -- projection of vba into the edge normalized vector
 
         updatedNodes =
           ns
             & Map.adjust
               ( \n -> case n.state of
                   Fixed -> n
-                  Free -> n {acceleration = n.acceleration + ((1 / n.mass) *^ (elasticForce + dampingForce))}
+                  Free -> n {acceleration = n.acceleration + ((1 / n.mass) *^ (elasticForce + (edge.dampingCoef *^ n.velocity)))}
               )
               idxA
             & Map.adjust
               ( \n -> case n.state of
                   Fixed -> n
-                  Free -> n {acceleration = n.acceleration - ((1 / n.mass) *^ elasticForce + dampingForce)}
+                  Free -> n {acceleration = n.acceleration - ((1 / n.mass) *^ elasticForce + (edge.dampingCoef *^ n.velocity))}
               )
               idxB
 
